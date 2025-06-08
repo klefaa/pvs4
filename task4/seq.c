@@ -2,60 +2,50 @@
 #include <stdlib.h>
 #include <time.h>
 
-void matrix_operations_seq(double **a, double **b, double **add, double **sub, double **mul, double **div, int rows, int cols) {
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++) {
-            add[i][j] = a[i][j] + b[i][j];
-            sub[i][j] = a[i][j] - b[i][j];
-            mul[i][j] = a[i][j] * b[i][j];
-            div[i][j] = (b[i][j] != 0.0) ? a[i][j] / b[i][j] : 0.0;
-        }
+void matrix_ops(float* a, float* b, float* add, float* sub, float* mul, float* divv, int N) {
+    int size = N * N;
+    for (int i = 0; i < size; i++) {
+        add[i] = a[i] + b[i];
+        sub[i] = a[i] - b[i];
+        mul[i] = a[i] * b[i];
+        divv[i] = b[i] != 0 ? a[i] / b[i] : 0;
+    }
 }
 
-double **allocate_matrix(int rows, int cols) {
-    double **mat = malloc(rows * sizeof(double *));
-    for (int i = 0; i < rows; i++)
-        mat[i] = malloc(cols * sizeof(double));
-    return mat;
-}
-
-void free_matrix(double **mat, int rows) {
-    for (int i = 0; i < rows; i++)
-        free(mat[i]);
-    free(mat);
-}
-
-int main(int argc, char *argv[]) {
-    if (argc != 2) {
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        printf("Использование: %s <размерность матрицы NxN>\n", argv[0]);
         return 1;
     }
 
-    int rows = atoi(argv[1]);
-    int cols = atoi(argv[1]);
+    int N = atoi(argv[1]);
+    int size = N * N;
 
-    double **a = allocate_matrix(rows, cols);
-    double **b = allocate_matrix(rows, cols);
-    double **add = allocate_matrix(rows, cols);
-    double **sub = allocate_matrix(rows, cols);
-    double **mul = allocate_matrix(rows, cols);
-    double **div = allocate_matrix(rows, cols);
+    float *a = (float*)malloc(size * sizeof(float));
+    float *b = (float*)malloc(size * sizeof(float));
+    float *add = (float*)malloc(size * sizeof(float));
+    float *sub = (float*)malloc(size * sizeof(float));
+    float *mul = (float*)malloc(size * sizeof(float));
+    float *divv = (float*)malloc(size * sizeof(float));
 
     srand(time(NULL));
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++) {
-            a[i][j] = (rand() % 1000) / 10.0;
-            b[i][j] = (rand() % 1000) / 10.0;
+    double totalTime = 0.0;
+
+    for (int run = 0; run < 100; run++) {
+        for (int i = 0; i < size; i++) {
+            a[i] = rand() / (float)RAND_MAX;
+            b[i] = rand() / (float)RAND_MAX;
         }
 
-    clock_t start = clock();
-    matrix_operations_seq(a, b, add, sub, mul, div, rows, cols);
-    clock_t end = clock();
+        clock_t start = clock();
+        matrix_ops(a, b, add, sub, mul, divv, N);
+        clock_t end = clock();
 
-    printf("Операции завершены (последовательно).\n");
-    printf("Время: %.4f секунд\n", (double)(end - start) / CLOCKS_PER_SEC);
+        totalTime += (double)(end - start) * 1000 / CLOCKS_PER_SEC; // в мс
+    }
 
-    free_matrix(a, rows); free_matrix(b, rows);
-    free_matrix(add, rows); free_matrix(sub, rows);
-    free_matrix(mul, rows); free_matrix(div, rows);
+    printf("Среднее время выполнения на CPU за 100 запусков: %.4f мс\n", totalTime / 100.0);
+
+    free(a); free(b); free(add); free(sub); free(mul); free(divv);
     return 0;
 }
