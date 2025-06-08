@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <cuda.h>
+#include <cuda_runtime.h>
 #include <time.h>
 
 __device__ void swap(float &a, float &b, bool dir) {
@@ -24,8 +24,16 @@ __global__ void bitonic_sort(float* data, int j, int k) {
 }
 
 void fillArray(float* a, int size) {
+    srand(time(NULL)); // Инициализация генератора случайных чисел
     for (int i = 0; i < size; i++)
-        a[i] = rand() / (float)RAND_MAX;
+        a[i] = (float)rand() / RAND_MAX; // Генерация чисел от 0 до 1
+}
+
+void checkCudaError(cudaError_t err, const char* msg) {
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA Error: %s: %s\n", msg, cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -34,29 +42,76 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int size = atoi(argv[1]);
-    int threads = atoi(argv[2]);
-    int blocks = size / threads;
+    const int size = atoi(argv[1]);
+    const int threads = atoi(argv[2]);
+    const int blocks = size / threads;
+    const int num_runs = 20;
 
+    // Проверка, что размер является степенью двойки
+    if ((size & (size - 1)) != 0) {
+        printf("Ошибка: размер должен быть степенью 2\n");
+        return 1;
+    }
+
+    // Выделение и инициализация памяти на хосте
     float* h_data = (float*)malloc(size * sizeof(float));
     fillArray(h_data, size);
 
+    // Выделение памяти на устройстве
     float* d_data;
-    cudaMalloc(&d_data, size * sizeof(float));
-    cudaMemcpy(d_data, h_data, size * sizeof(float), cudaMemcpyHostToDevice);
+    cudaError_t err = cudaMalloc(&d_data, size * sizeof(float));
+    checkCudaError(err, "cudaMalloc");
+    
+    // Создание событий CUDA для замера времени
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    
+    float total_time = 0.0f;
 
-    clock_t start = clock();
-    for (int k = 2; k <= size; k <<= 1)
-        for (int j = k >> 1; j > 0; j >>= 1)
-            bitonic_sort<<<blocks, threads>>>(d_data, j, k);
+    for (int run = 0; run < num_runs; ++run) {
+        // Копирование данных на устройство
+        err = cudaMemcpy(d_data, h_data, size * sizeof(float), cudaMemcpyHostToDevice);
+        checkCudaError(err, "cudaMemcpy H2D");
+        
+        // Замер времени выполнения
+        cudaEventRecord(start);
+        
+        // Bitonic сортировка
+        for (int k = 2; k <= size; k <<= 1) {
+            for (int j = k >> 1; j > 0; j >>= 1) {
+                bitonic_sort<<<blocks, threads>>>(d_data, j, k);
+                err = cudaGetLastError();
+                checkCudaError(err, "bitonic_sort kernel");
+            }
+        }
+        
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+        
+        // Вычисление времени выполнения
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, start, stop);
+        total_time += milliseconds;
+    }
 
-    cudaMemcpy(h_data, d_data, size * sizeof(float), cudaMemcpyDeviceToHost);
-    clock_t end = clock();
+    // Копирование результатов обратно
+    err = cudaMemcpy(h_data, d_data, size * sizeof(float), cudaMemcpyDeviceToHost);
+    checkCudaError(err, "cudaMemcpy D2H");
 
-    printf("Параллельная сортировка (Bitonic) завершена.\n");
-    printf("Время выполнения: %.4f секунд\n", (double)(end - start) / CLOCKS_PER_SEC);
+    // Вычисление среднего времени
+    float avg_time = total_time / num_runs;
+    
+    printf("Bitonic Sort (параллельная)\n");
+    printf("Размер массива: %d элементов\n", size);
+    printf("Блоков: %d, Потоков на блок: %d\n", blocks, threads);
+    printf("Среднее время выполнения за %d запусков: %.4f мс\n", num_runs, avg_time);
 
+    // Освобождение ресурсов
     free(h_data);
     cudaFree(d_data);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
     return 0;
 }
